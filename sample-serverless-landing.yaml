@@ -1,0 +1,190 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Deploy the Infrastructure (IAM User + S3 + CloudFront + Route53) for Sample Project
+
+
+Parameters:
+
+  Env:
+    Type: String
+    Default: develop
+    AllowedValues:
+      - develop
+      - staging
+      - production
+    Description: 'Define the environment to deploy. Accepted values are "develop", "staging" and "production"'
+
+  AwsCertificateArn:
+    Type:         String
+    Default:      "arn:aws:acm:us-east-1:123456789012:certificate/c40feb7f-cb86-482b-8742-468e546e2bb4"
+    Description:  Certificate must be created before CloudFormation stack so the value is fixed
+ 
+  AwsRoute53CloudFrontHostedZoneId:
+    Type:         String
+    Default:      Z2FDTNDATAQYW2 #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-route53-aliastarget-1.html#cfn-route53-aliastarget-hostedzoneid
+    Description:  CloudFront resources HostedZoneId
+
+  AwsRoute53HostedZoneId:
+    Type:         String
+    Default:      Z254054852MK1MQJQUFTQ
+    Description:  sample.io Route53 HostedZoneId
+
+  AwsAccountId:
+    Type:         String
+    Default:      "123456789012"
+    Description:  Sample Account ID
+
+Mappings:
+
+  EnvironmentMaps:
+    develop:
+      "CloudFrontPriceClass":   PriceClass_All
+      "Domain":                 dev.sample.io              
+      "S3BucketName":           dev.sample.io    
+    staging:
+      "CloudFrontPriceClass":   PriceClass_All
+      "Domain":                 stg.sample.io                 
+      "S3BucketName":           stg.sample.io            
+    production:
+      "CloudFrontPriceClass":   PriceClass_All
+      "Domain":                 sample.io      
+      "S3BucketName":           sample.io         
+
+
+Resources:
+
+  SampleFrontIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Join ["", ["Sample (", !Ref Env, ") Origin Access Identity"]]
+
+  
+  SampleS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !FindInMap [EnvironmentMaps, !Ref Env, "S3BucketName"]
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+
+
+  SampleCloudFront:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !FindInMap [EnvironmentMaps, !Ref Env, "Domain"]
+        Comment: !Join ["", ["Sample ", !Ref Env]]
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: True
+          TargetOriginId:
+            !Join ["", ["S3-origin-", !FindInMap [EnvironmentMaps, !Ref Env, "S3BucketName"]]]
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: True
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 #https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html
+        DefaultRootObject: index.html
+        Enabled: True
+        HttpVersion: http2
+        IPV6Enabled: False
+        Origins:
+          - DomainName: !GetAtt SampleS3Bucket.RegionalDomainName
+            Id: !Join ["", ["S3-origin-", !FindInMap [EnvironmentMaps, !Ref Env, "S3BucketName"]]]
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${SampleFrontIdentity}"
+        PriceClass: !FindInMap [EnvironmentMaps, !Ref Env, "CloudFrontPriceClass"]
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AwsCertificateArn
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+
+  SampleS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SampleS3Bucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - "s3:GetObject"
+            Effect: Allow
+            Principal: 
+              AWS:
+                !Join [
+                  "",
+                  [
+                    "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ",
+                    !Ref SampleFrontIdentity,
+                  ],
+                ]
+            Resource: !Join ["", ["arn:aws:s3:::", !Ref SampleS3Bucket, "/*"]]
+        Version: "2012-10-17"
+
+
+  SampleRoute53TypeA:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt SampleCloudFront.DomainName
+        EvaluateTargetHealth: False
+        HostedZoneId: !Ref AwsRoute53CloudFrontHostedZoneId #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-route53-aliastarget-1.html#cfn-route53-aliastarget-hostedzoneid
+      Comment: !Join ["", ["Sample ", !Ref Env, " Route"]]
+      HostedZoneId: !Ref AwsRoute53HostedZoneId
+      Name: !FindInMap [EnvironmentMaps, !Ref Env, "Domain"]
+      Type: A
+
+   
+  DeploymentUser:
+    Type: AWS::IAM::User
+    Properties:
+      Policies:
+        - PolicyName: !Sub 'S3-PermissionsFor-${SampleS3Bucket}'
+          PolicyDocument:
+            Statement:
+              - Action: 's3:*'
+                Effect: Allow
+                Resource:
+                  - !Sub 'arn:aws:s3:::${SampleS3Bucket}'
+                  - !Sub 'arn:aws:s3:::${SampleS3Bucket}/*'
+        - PolicyName: !Sub 'CloudFront-PermissionsFor-${SampleCloudFront}'
+          PolicyDocument:
+            Statement:
+              - Action: 'cloudfront:*'
+                Effect: Allow
+                Resource:
+                  - !Sub 'arn:aws:cloudfront::${AwsAccountId}:distribution/${SampleCloudFront}'
+      UserName: !Join ["", ["SampleS3User-", !Ref Env]]
+
+
+  PublishCredentials:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref DeploymentUser
+
+
+Outputs:
+  CloudFrontURL:
+    Value:        !GetAtt SampleCloudFront.DomainName
+    Description:  "Sample CloudFront URL"
+  IAMUserName:
+    Value:        !Ref DeploymentUser
+    Description:  "Sample IAM UserName"
+  AccessKeyId:
+    Value:        !Ref PublishCredentials
+    Description: "DeploymentUser S3 Access Key"
+  AccessKeySecret:
+    Value:        !GetAtt PublishCredentials.SecretAccessKey
+    Description: "DeploymentUser S3 Secret Key"
+  RecordA:
+    Value:        !Ref SampleRoute53TypeA
+    Description: "sample.io RecordA"

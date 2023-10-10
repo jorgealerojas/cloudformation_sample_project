@@ -1,0 +1,147 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Reference Architecture to host Sample Project on AWS - Deploys the Sample RDS Postgres instance.
+
+Parameters:
+  
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: Choose which VPC the RDS Instance should be deployed to
+
+  PostgresSecurityGroup:
+    Description: Select the Security Group to apply to the RDS Instance
+    Type: AWS::EC2::SecurityGroup::Id
+
+  PrivateSubnetID1:
+    Description: The first private subnet
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnetID2:
+    Description: The second private subnet
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnetID3:
+    Description: The second private subnet
+    Type: AWS::EC2::Subnet::Id
+    
+  DatabaseIdentifier:
+    Type: String
+    Description: The Database identifier displayed in the AWS console
+    
+  DatabaseEnvironment:
+    Type: String
+    Description: Database Environment
+
+  DatabaseSize:
+    Type: Number
+    Description: Database storage size in gigabytes (GB)
+
+  DatabaseInstanceClass:
+    AllowedValues:
+      - db.t3.small
+      - db.t3.medium
+      - db.m5.large
+      - db.r3.large
+      - db.r3.xlarge
+      - db.r3.2xlarge
+      - db.r3.4xlarge
+      - db.r3.8xlarge
+      - db.r4.large
+      - db.r4.xlarge
+      - db.r4.2xlarge
+      - db.r4.4xlarge
+      - db.r4.8xlarge
+      - db.r4.16xlarge
+    ConstraintDescription: Must be a valid RDS instance class.
+    Default: db.t3.small
+    Description: The Amazon RDS database instance class.
+    Type: String
+  
+  DatabaseUser:
+    AllowedPattern: ^([a-zA-Z0-9]*)$
+    Description: The Amazon RDS master username.
+    ConstraintDescription: Must contain only alphanumeric characters (minimum 8; maximum 16).
+    MaxLength: 16
+    MinLength: 8
+    Type: String
+  
+  DatabasePassword:
+    AllowedPattern: ^([a-z0-9A-Z`~!#$%^&*()_+,\\-])*$
+    ConstraintDescription: Must be letters (upper or lower), numbers, and these special characters '_'`~!#$%^&*()_+,-    
+    Description: The Amazon RDS master password.
+    MaxLength: 41
+    MinLength: 8
+    NoEcho: true
+    Type: String
+
+
+Resources:
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for RDS Postgres DB
+      SubnetIds:
+        - !Ref PrivateSubnetID1
+        - !Ref PrivateSubnetID2
+        - !Ref PrivateSubnetID3
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+
+  DatabaseParameterGroup:
+      Type: AWS::RDS::DBParameterGroup
+      Properties:
+        Description: Postgres DB parameters
+        Family: 'postgres15'
+        Parameters:
+          max_connections: '1000'
+          rds.force_ssl: '0'
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      DBParameterGroupName: !Ref DatabaseParameterGroup
+      VPCSecurityGroups:
+        - !Ref PostgresSecurityGroup
+      Engine: postgres
+      DBInstanceIdentifier: !Ref DatabaseIdentifier
+      MasterUsername: !Ref DatabaseUser
+      MasterUserPassword: !Ref DatabasePassword
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      AllocatedStorage: !Ref DatabaseSize
+      StorageType: gp3
+      MultiAZ: false
+      CopyTagsToSnapshot: true
+      Tags:
+      - Key: Name
+        Value: !Sub ${DatabaseEnvironment}-Postgres-DB
+
+Outputs:
+
+  Name:
+    Description: RDS Stack Name
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub ${AWS::StackName}-Name
+
+  RdsDbId:
+    Description: RDS Database ID
+    Value: !Ref Database
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseID
+
+  RdsDbURL:
+    Description: RDS Database URL
+    Value: !GetAtt Database.Endpoint.Address
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseURL
+
+  DbUser:
+    Description: RDS Database admin account user
+    Value: !Ref DatabaseUser
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseUser
+      

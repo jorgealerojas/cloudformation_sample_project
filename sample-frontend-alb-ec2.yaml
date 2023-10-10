@@ -1,0 +1,330 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Reference Architecture to host Sample Frontend Stack on AWS - Creates EC2 Instance, ALB, TG and assign ACM
+
+Parameters:
+  Environment:
+    Description: Environment name
+    Type: String
+    AllowedValues:
+    - Dev
+    - Stg
+    - Prod
+  SystemName:
+    Description: Name of the System
+    Type: String
+  VPC:
+    Description: The VPC in which you want to Launch your EC2
+    Type: AWS::EC2::VPC::Id
+  AMI:
+    Description: The AMI that you?ll use for your EC2
+    Type: AWS::EC2::Image::Id
+  EBSVolume:
+    Description: EBS Volume Size
+    Type: Number
+  SecurityGroup:
+    Description: The Security Group of instance
+    Type: AWS::EC2::SecurityGroup::Id
+  SubnetEC2:
+    Description: EC2 Subnets
+    Type: AWS::EC2::Subnet::Id
+  KeyPairName:
+    Description: Name of an existing Amazon EC2 KeyPair for SSH access to the Web
+      Server
+    Type: List<AWS::EC2::KeyPair::KeyName>
+    Default: my-key
+  InstanceClass:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.small
+    AllowedValues:
+    - t3.nano 
+    - t3.micro 
+    - t3.small 
+    - t3.medium 
+    - t3.large 
+    - t3.xlarge 
+    - t3.2xlarge
+    - m5.large 
+    - m5.xlarge 
+    - m5.2xlarge 
+    - m5.4xlarge 
+    - m5.12xlarge 
+    - m5.24xlarge
+    - m6.large 
+    - m6.xlarge 
+    - m6.2xlarge 
+    - m6.4xlarge 
+    - m6.12xlarge 
+    - m6.24xlarge
+    ConstraintDescription: must be a valid EC2 instance type.
+  NumberOfSubnets:
+    AllowedValues:
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    Default: 3
+    Description: Number of subnets. This must match your selections in the list of subnets below.
+    Type: String 
+  PublicAlbAcmCertificate:
+    AllowedPattern: ^$|(arn:aws:acm:)([a-z0-9/:-])*([a-z0-9])$
+    Description: '[ Optional ] The AWS Certification Manager certificate ARN for the ALB certificate - this certificate should be created in the region you wish to run the ALB and must reference the WordPress domain name you use below.'
+    Type: String
+    Default: arn:aws:acm:us-east-1:123456789012:certificate/fa4f852c-67ac-4d3a-a5bf-bf4ee4fe868b
+  PublicAlbSecurityGroup:
+    Description: Select the ALB security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  Subnet:
+    Description: ALB Subnets.
+    Type: List<AWS::EC2::Subnet::Id>
+
+Conditions:
+
+  SslCertificate:
+    !Not [!Equals [ '', !Ref PublicAlbAcmCertificate ] ]
+  NoSslCertificate:
+    !Equals [ '', !Ref PublicAlbAcmCertificate ]
+  NumberOfSubnets1:
+      !Equals [ 1, !Ref NumberOfSubnets ]
+  NumberOfSubnets2:
+      !Equals [ 2, !Ref NumberOfSubnets ]
+  NumberOfSubnets3:
+      !Equals [ 3, !Ref NumberOfSubnets ]
+  NumberOfSubnets4:
+      !Equals [ 4, !Ref NumberOfSubnets ]
+  NumberOfSubnets5:
+      !Equals [ 5, !Ref NumberOfSubnets ]
+  NumberOfSubnets6:
+      !Equals [ 6, !Ref NumberOfSubnets ]
+  Subnet0: !Or
+    - !Condition NumberOfSubnets1
+    - !Condition NumberOfSubnets2
+    - !Condition NumberOfSubnets3
+    - !Condition NumberOfSubnets4
+    - !Condition NumberOfSubnets5
+    - !Condition NumberOfSubnets6
+  Subnet1: !Or
+    - !Condition NumberOfSubnets2
+    - !Condition NumberOfSubnets3
+    - !Condition NumberOfSubnets4
+    - !Condition NumberOfSubnets5
+    - !Condition NumberOfSubnets6
+  Subnet2: !Or
+    - !Condition NumberOfSubnets3
+    - !Condition NumberOfSubnets4
+    - !Condition NumberOfSubnets5
+    - !Condition NumberOfSubnets6
+  Subnet3: !Or
+    - !Condition NumberOfSubnets4
+    - !Condition NumberOfSubnets5
+    - !Condition NumberOfSubnets6
+  Subnet4: !Or
+    - !Condition NumberOfSubnets5
+    - !Condition NumberOfSubnets6
+  Subnet5: !Condition NumberOfSubnets6
+
+Resources:
+  Ec2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId:
+        Ref: AMI
+      InstanceType:
+        Ref: InstanceClass
+      KeyName:
+        Ref: KeyPairName
+      SecurityGroupIds:
+      - Ref: SecurityGroup
+      SubnetId:
+        Ref: SubnetEC2
+      BlockDeviceMappings: 
+      - DeviceName: "/dev/sda1"
+        Ebs: 
+          VolumeType: "gp3"
+          DeleteOnTermination: "false"
+          VolumeSize: !Sub '${EBSVolume}'
+      Tags:
+      - Key: Name
+        Value: !Sub '${SystemName}-${Environment}'
+      - Key: SystemName
+        Value:
+          Ref: SystemName
+      - Key: Environment
+        Value:
+          Ref: Environment
+      Tenancy: default
+
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: '/'
+      Roles:
+      - !Ref EC2InstanceRole
+  
+
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ["", ["SampleMonitoringRole-", !Ref Environment]]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: '/'
+      Policies:
+      - PolicyName: CWlogs
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            - ec2:DescribeVolumes
+            - ec2:DescribeTags
+            - logs:PutLogEvents
+            - logs:DescribeLogStreams
+            - logs:DescribeLogGroups
+            - logs:CreateLogStream
+            - logs:CreateLogGroup
+            Resource:
+            - arn:aws:logs:*:*:*
+      - PolicyName: GetSSMParameter
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - ssm:GetParameter
+            Resource:
+            - arn:aws:ssm:*:*:parameter/AmazonCloudWatch-*
+
+  
+  PublicAlbListenerNoSslCertificate:
+    Type : AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - RedirectConfig:
+          Host: "#{host}"
+          Path: "/#{path}"
+          Port: 443
+          Protocol: "HTTPS"
+          Query: "#{query}"
+          StatusCode: HTTP_301
+        Type: redirect
+      LoadBalancerArn: !Ref PublicApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+  
+  PublicAlbListenerSslCertificate:
+    Condition: SslCertificate
+    Type : AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+      - CertificateArn: !Ref PublicAlbAcmCertificate
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref PublicAlbTargetGroup
+      LoadBalancerArn: !Ref PublicApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+
+  PublicApplicationLoadBalancer: 
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${SystemName}-ALB-${Environment}'
+      Scheme: internet-facing
+      Subnets:
+        !If
+          [ NumberOfSubnets1,
+          [ !Select [ 0, !Ref Subnet ] ],
+          !If
+            [ NumberOfSubnets2,
+            [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ] ],
+            !If
+              [ NumberOfSubnets3,
+              [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ], !Select [ 2, !Ref Subnet ] ],
+              !If
+                [ NumberOfSubnets4,
+                [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ], !Select [ 2, !Ref Subnet ], !Select [ 3, !Ref Subnet ] ],
+                !If
+                  [ NumberOfSubnets5,
+                  [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ], !Select [ 2, !Ref Subnet ], !Select [ 3, !Ref Subnet ], !Select [ 4, !Ref Subnet ] ],
+                  [ !Select [ 0, !Ref Subnet ], !Select [ 1, !Ref Subnet ], !Select [ 2, !Ref Subnet ], !Select [ 3, !Ref Subnet ], !Select [ 4, !Ref Subnet ], !Select [ 5, !Ref Subnet ] ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+      LoadBalancerAttributes:
+      - Key: idle_timeout.timeout_seconds
+        Value: 60
+      SecurityGroups:
+      - !Ref PublicAlbSecurityGroup
+      Tags:
+      - Key: Name
+        Value: !Join [ '', [ 'FrontEnd ALB / ', !Ref 'AWS::StackName' ] ]
+
+  PublicAlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "TG-${SystemName}-${Environment}"
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckTimeoutSeconds: 5
+      Matcher:
+        HttpCode: '200,301'
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Join [ '', [ 'TG / ', !Ref 'AWS::StackName' ] ]
+
+Outputs:
+  InstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value:
+      Ref: Ec2Instance
+  AZ:
+    Description: Availability Zone of the newly created EC2 instance
+    Value:
+      'Fn::GetAtt':
+      - Ec2Instance
+      - AvailabilityZone
+  PrivateIP:
+    Description: Private IP address of the newly created EC2 instance
+    Value:
+      'Fn::GetAtt':
+      - Ec2Instance
+      - PrivateIp
+  PublicAlbTargetGroupArn:
+    Value:
+      !Ref PublicAlbTargetGroup
+  PublicAlbCanonicalHostedZoneId:
+    Value:
+      !GetAtt PublicApplicationLoadBalancer.CanonicalHostedZoneID
+  PublicAlbDnsName:
+    Value:
+      !GetAtt PublicApplicationLoadBalancer.DNSName
+  PublicAlbFullName:
+    Value:
+      !GetAtt PublicApplicationLoadBalancer.LoadBalancerFullName
+  PublicAlbHostname:
+    Value:
+      !If [ NoSslCertificate, !Join [ '', [ 'http://', !GetAtt PublicApplicationLoadBalancer.DNSName ] ], !Join [ '', [ 'https://', !GetAtt PublicApplicationLoadBalancer.DNSName ] ] ]
+  SslCertificate:
+    Value:
+      !If [ SslCertificate, True, False ]
+  EC2InstanceRole:
+    Value:
+      Ref: EC2InstanceRole
