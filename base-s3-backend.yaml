@@ -1,12 +1,12 @@
 ---
 AWSTemplateFormatVersion: 2010-09-09
 
-Description: Reference Architecture to host Sample Project on AWS - Creates S3 bucket for backend system
+Description: Reference Architecture to host Base on AWS - Creates S3 bucket for backend system
 
 Metadata:
 
   Authors:
-    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
+    Description: Shokworks's Infrastructure Team (infra@shokworks.io)
 
 Parameters:
   paramBucketName:
@@ -25,23 +25,53 @@ Resources:
   S3Bucket:
     Type: 'AWS::S3::Bucket'
     Properties:
-      AccessControl: BucketOwnerFullControl
       BucketName: !Sub '${paramBucketName}-${paramEnvironment}'
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub arn:aws:s3:::${S3Bucket}
+              - !Sub arn:aws:s3:::${S3Bucket}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
   S3User:
     Type: AWS::IAM::User
     Properties:
       Policies:
-        - PolicyName: !Sub 'Sample-bucket-access-${paramEnvironment}'
+        - PolicyName: !Sub '${paramBucketName}-bucket-access-${paramEnvironment}'
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
             - Effect: Allow
               Action:
-              - s3:*
+                - 's3:PutObject'
+                - 's3:GetObject'
+                - 's3:ListBucket'
               Resource:
                 - !Sub arn:aws:s3:::${S3Bucket}
                 - !Sub arn:aws:s3:::${S3Bucket}/*
@@ -60,9 +90,5 @@ Outputs:
     Description: Domain Name of the Amazon S3 bucket
   AccessKeyID:
     Value: !Ref S3UserAccessKey
-  SecretAccessKey:
-    Value: !GetAtt S3UserAccessKey.SecretAccessKey
-  BucketName:
-    Value: !Ref S3Bucket
   User:
     Value: !Ref S3User

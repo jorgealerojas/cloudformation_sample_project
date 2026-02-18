@@ -1,0 +1,193 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Base Service Definition for Dev Backend
+
+Parameters:
+  Cluster:
+    Description: Please provide the ECS Cluster ID that this service should run on
+    Type: String
+
+  SystemName:
+    Description: Identifier for the current system and environment
+    Type: String
+
+  DeploymentEnv:
+    Description: The environment to be deployed
+    Type: String
+    AllowedValues:
+    - dev
+    - stg
+    - prod
+
+  Subnets:
+    Description: Choose which subnets this ECS cluster should be deployed to
+    Type: List<AWS::EC2::Subnet::Id>
+
+  SecurityGroup:
+    Description: Select the Security Group to use for the ECS cluster hosts
+    Type: AWS::EC2::SecurityGroup::Id
+
+
+Conditions:
+  IsProd: !Equals [!Ref DeploymentEnv, Prod]
+  IsStg: !Equals [!Ref DeploymentEnv, Stg]
+  IsDev: !Equals [!Ref DeploymentEnv, Dev]
+
+Resources:
+  BackendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${SystemName}-backend-${DeploymentEnv}"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+      - FARGATE
+      ExecutionRoleArn: !Sub "arn:aws:iam::604409773169:role/${SystemName}-task-exec-role-${DeploymentEnv}"
+      Cpu: !If [IsDev, 512, 1024]
+      Memory: !If [IsDev, 1GB, 2GB]
+      TaskRoleArn: !Sub "arn:aws:iam::604409773169:role/${SystemName}-task-exec-role-${DeploymentEnv}"
+      ContainerDefinitions:
+      - Name: !Sub "${SystemName}-Container-${DeploymentEnv}"
+        Essential: true
+        Image: !Sub "604409773169.dkr.ecr.us-east-1.amazonaws.com/base:develop"
+        MemoryReservation: 128
+        Secrets:
+        # Varias    
+        - Name:  VITE_API_BASE_URL
+          ValueFrom: !Sub "/${SystemName}/${DeploymentEnv}/VITE_API_BASE_URL"
+        # SWAGGER
+        - Name:  SWAGGER_USERNAME
+          ValueFrom: !Sub "/${SystemName}/${DeploymentEnv}/SWAGGER_USERNAME"
+        - Name:  SWAGGER_PASSWORD
+          ValueFrom: !Sub "/${SystemName}/${DeploymentEnv}/SWAGGER_PASSWORD"
+        # DB
+        - Name:  MONGODB_DATABASE
+          ValueFrom: !Sub "/${SystemName}/${DeploymentEnv}/MONGODB_DATABASE"
+        - Name:  MONGODB_URL
+          ValueFrom: !Sub "/${SystemName}/${DeploymentEnv}/MONGODB_URL"
+        # GLOBAL
+        - Name: ENVIRONMENT
+          ValueFrom: !Sub "/${SystemName}/${DeploymentEnv}/ENVIRONMENT"
+        - Name: JWT_SECRET_KEY
+          ValueFrom: !Sub "/${SystemName}/DevStg/JWT_SECRET_KEY"
+        - Name: CORS_ALLOW_ORIGINS
+          ValueFrom: !Sub "/${SystemName}/${DeploymentEnv}/CORS_ALLOW_ORIGINS"
+        - Name: ACCESS_TOKEN_EXPIRE_MINUTES
+          ValueFrom: !Sub "/${SystemName}/DevStg/ACCESS_TOKEN_EXPIRE_MINUTES"
+        
+        PortMappings:
+        - ContainerPort: 3000
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref CloudwatchLogsGroup
+            awslogs-region: !Ref AWS::Region
+            awslogs-stream-prefix: !Sub "${SystemName}"
+
+  BackendService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: !If [IsProd, 2, 1]
+      LaunchType: FARGATE
+      LoadBalancers:
+      - ContainerName: !Sub "${SystemName}-Container-${DeploymentEnv}"
+        ContainerPort: 3000
+        TargetGroupArn: !Sub "arn:aws:elasticloadbalancing:us-east-1:604409773169:targetgroup/TG-${SystemName}-Backend-${DeploymentEnv}/f693cf2307f976e8"
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+          - !Ref SecurityGroup
+          Subnets: !Ref Subnets
+      SchedulingStrategy: REPLICA
+      ServiceName: !Sub "${SystemName}-Service-${DeploymentEnv}"
+      TaskDefinition: !Ref BackendTaskDefinition
+
+  CloudwatchLogsGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '${SystemName}-Backend-${DeploymentEnv}'
+      RetentionInDays: 7
+
+  # Auto Scaling Target
+  ECSAutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: BackendService
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Sub "service/${Cluster}/${SystemName}-Service-${DeploymentEnv}"
+      RoleARN: !Sub "arn:aws:iam::604409773169:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  # Auto Scaling Policy for CPU
+  ECSCPUScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${SystemName}-CPU-ScalingPolicy-${DeploymentEnv}"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ECSAutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 75.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+
+  # Auto Scaling Policy for Memory
+  ECSMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${SystemName}-Memory-ScalingPolicy-${DeploymentEnv}"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ECSAutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 75.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+
+  # CloudWatch Alarm for CPU Utilization
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Alarm if Backend CPU Tasks exceeds 75%"
+      Namespace: AWS/ECS
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref Cluster
+        - Name: ServiceName
+          Value: !Sub "${SystemName}-Service-${DeploymentEnv}"
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 75
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref ECSCPUScalingPolicy
+
+  # CloudWatch Alarm for Memory Utilization
+  MemoryAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Alarm if Backend Memory Tasks exceeds 75%"
+      Namespace: AWS/ECS
+      MetricName: MemoryUtilization
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref Cluster
+        - Name: ServiceName
+          Value: !Sub "${SystemName}-Service-${DeploymentEnv}"
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 75
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref ECSMemoryScalingPolicy   

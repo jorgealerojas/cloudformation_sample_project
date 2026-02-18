@@ -1,7 +1,8 @@
 ---
 AWSTemplateFormatVersion: 2010-09-09
 
-Description: Reference Architecture to host Sample Project on AWS - Deploys the Sample RDS Postgres instance.
+Description: >
+  This template deploys the Urban RDS Postgres instance.
 
 Parameters:
   
@@ -32,6 +33,10 @@ Parameters:
   DatabaseEnvironment:
     Type: String
     Description: Database Environment
+    AllowedValues:
+    - dev
+    - stg
+    - prod
 
   DatabaseSize:
     Type: Number
@@ -94,13 +99,15 @@ Resources:
       Type: AWS::RDS::DBParameterGroup
       Properties:
         Description: Postgres DB parameters
-        Family: 'postgres15'
+        Family: 'postgres17'
         Parameters:
           max_connections: '1000'
-          rds.force_ssl: '0'
+          rds.force_ssl: '1'
 
   Database:
     Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
     Properties:
       DBSubnetGroupName: !Ref DatabaseSubnetGroup
       DBParameterGroupName: !Ref DatabaseParameterGroup
@@ -113,6 +120,11 @@ Resources:
       DBInstanceClass: !Ref DatabaseInstanceClass
       AllocatedStorage: !Ref DatabaseSize
       StorageType: gp3
+      StorageEncrypted: true
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      DeletionProtection: true
+      EnablePerformanceInsights: true
       MultiAZ: false
       CopyTagsToSnapshot: true
       Tags:

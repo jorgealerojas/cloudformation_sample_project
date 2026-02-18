@@ -1,0 +1,25 @@
+Description: >
+  Deploys an ECS cluster 
+
+Parameters:
+  Environment:
+    Description: The Environment name
+    Type: String
+    AllowedValues:
+    - dev
+    - stg
+    - prod
+  SystemName:
+    Description: The name of the System
+    Type: String
+
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${SystemName}-Cluster-${Environment}'
+
+Outputs:
+  Cluster:
+    Description: A reference to the ECS cluster
+    Value: !Ref ECSCluster

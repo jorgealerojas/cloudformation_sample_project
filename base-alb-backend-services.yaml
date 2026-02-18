@@ -1,13 +1,12 @@
 
 AWSTemplateFormatVersion: 2010-09-09
 
-Description: Reference Architecture to host Sample on AWS - Creates Application Load Balancer
+Description: Base Backend ALB
 
 Metadata:
 
   Authors:
-    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
-
+    Description: Shokworks's Infrastructure Team (infra@shokworks.io)
 
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -37,7 +36,6 @@ Metadata:
         default: Name of System Stack
 
 Parameters:
-
   NumberOfSubnets:
     AllowedValues:
     - 2
@@ -52,7 +50,6 @@ Parameters:
     AllowedPattern: ^$|(arn:aws:acm:)([a-z0-9/:-])*([a-z0-9])$
     Description: '[ Optional ] The AWS Certification Manager certificate ARN for the ALB certificate - this certificate should be created in the region you wish to run the ALB and must reference the WordPress domain name you use below.'
     Type: String
-    Default: arn:aws:acm:us-east-1:669013123456789012880776:certificate/fa4f852c-67ac-4d3a-a5bf-bf4ee4fe868b
   PublicAlbSecurityGroup:
     Description: Select the ALB security group.
     Type: AWS::EC2::SecurityGroup::Id
@@ -65,6 +62,10 @@ Parameters:
   DeploymentEnv:
     Description: The environment to be deployed
     Type: String
+    AllowedValues:
+    - dev
+    - stg
+    - prod
   SystemName:
     Description: Identifier for the current system and environment
     Type: String
@@ -148,7 +149,7 @@ Resources:
   PublicApplicationLoadBalancer: 
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub "${SystemName}-ALB-${DeploymentEnv}"
+      Name: !Sub "${SystemName}-ALB-Backend-${DeploymentEnv}"
       Scheme: internet-facing
       Subnets:
         !If
@@ -184,9 +185,9 @@ Resources:
   PublicAlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub "TG-${SystemName}-${DeploymentEnv}"
+      Name: !Sub "TG-${SystemName}-Backend-${DeploymentEnv}"
       HealthCheckIntervalSeconds: 30
-      HealthCheckPath: /api/docs
+      HealthCheckPath: /health
       HealthCheckTimeoutSeconds: 5
       Matcher:
         HttpCode: '200,301'

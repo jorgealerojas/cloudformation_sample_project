@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Base task execution role for ECS Fargate
+
+Parameters:
+  SystemName:
+    Description: Identifier for the current system and environment
+    Type: String
+  DeploymentEnv:
+    Description: The environment to be deployed
+    Type: String
+    AllowedValues:
+    - dev
+    - stg
+    - prod
+
+Resources:
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${SystemName}-task-exec-role-${DeploymentEnv}"
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: AccessParameterStore
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${SystemName}/*"
+
+Outputs:
+  TaskExecutionRole:
+    Description: A reference to the task execution role
+    Value: !Ref TaskExecutionRole

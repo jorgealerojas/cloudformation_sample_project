@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Simple EC2 Bastion Host
+
+Parameters:
+  BastionSecurityGroup:
+    Description: Select the bastion security group.
+    Type: AWS::EC2::SecurityGroup::Id
+  BastionInstanceType:
+    AllowedValues:
+    - t3.nano 
+    - t3.micro 
+    - t3.small 
+    - t3.medium 
+    - t3.large 
+    - t3.xlarge 
+    - t3.2xlarge 
+    - m3.medium 
+    - m3.large 
+    - m3.xlarge
+    Default: t3.nano
+    Description: Bastion EC2 instance type.
+    Type: String
+  EC2KeyName:
+    Description: Name of an EC2 KeyPair. Your bastion instance will launch with this KeyPair.
+    Type: AWS::EC2::KeyPair::KeyName
+  SubnetId:
+    Description: Select the subnet for the bastion host.
+    Type: AWS::EC2::Subnet::Id
+
+Mappings:
+  RegionMap:
+    ap-northeast-1:
+      AMI: ami-da9e2cbc
+    ap-northeast-2:
+      AMI: ami-1196317f
+    ap-south-1:
+      AMI: ami-d5c18eba
+    ap-southeast-1:
+      AMI: ami-c63d6aa5
+    ap-southeast-2:
+      AMI: ami-ff4ea59d
+    ca-central-1:
+      AMI: ami-d29e25b6
+    eu-central-1:
+      AMI: ami-bf2ba8d0
+    eu-west-1:
+      AMI: ami-1a962263
+    eu-west-2:
+      AMI: ami-e7d6c983
+    sa-east-1:
+      AMI: ami-286f2a44
+    us-east-1:
+      AMI: ami-084568db4383264d4
+    us-east-2:
+      AMI: ami-15e9c770
+    us-west-1:
+      AMI: ami-a51f27c5
+    us-west-2:
+      AMI: ami-bf4193c7
+
+Resources:
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref BastionInstanceType
+      KeyName: !Ref EC2KeyName
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      IamInstanceProfile: !Ref BastionInstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            Encrypted: true
+            DeleteOnTermination: true
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref BastionSecurityGroup
+          SubnetId: !Ref SubnetId
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-BastionInstance"
+
+  BastionInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: '/'
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: arn:aws:logs:*:*:*
+
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: '/'
+      Roles:
+        - !Ref BastionInstanceRole
+
+Outputs:
+  BastionInstanceId:
+    Description: ID of the Bastion EC2 Instance
+    Value: !Ref BastionInstance
+  BastionPublicIP:
+    Description: Public IP address of the Bastion instance
+    Value: !GetAtt BastionInstance.PublicIp
+  BastionPrivateIP:
+    Description: Private IP address of the Bastion instance
+    Value: !GetAtt BastionInstance.PrivateIp
