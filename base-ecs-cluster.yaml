@@ -1,5 +1,10 @@
 Description: >
-  Deploys an ECS cluster 
+  Deploys an ECS cluster
+
+Metadata:
+
+  Authors:
+    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
 
 Parameters:
   Environment:

@@ -6,7 +6,7 @@ Description: Reference Architecture to host Base on AWS - Creates New VPC for De
 Metadata:
 
   Authors:
-    Description: Shokworks's Infrastructure Team (infra@shokworks.io)
+    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
     
 
   AWS::CloudFormation::Interface:

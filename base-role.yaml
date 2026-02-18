@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: 2010-09-09
 
 Description: Base task execution role for ECS Fargate
 
+Metadata:
+
+  Authors:
+    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
+
 Parameters:
   SystemName:
     Description: Identifier for the current system and environment

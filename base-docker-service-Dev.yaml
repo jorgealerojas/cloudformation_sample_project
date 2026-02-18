@@ -2,6 +2,11 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Base Service Definition for Dev Backend
 
+Metadata:
+
+  Authors:
+    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
+
 Parameters:
   Cluster:
     Description: Please provide the ECS Cluster ID that this service should run on

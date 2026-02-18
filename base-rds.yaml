@@ -4,6 +4,11 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: >
   This template deploys the Urban RDS Postgres instance.
 
+Metadata:
+
+  Authors:
+    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
+
 Parameters:
   
   VPC:

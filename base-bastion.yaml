@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: 2010-09-09
 
 Description: Simple EC2 Bastion Host
 
+Metadata:
+
+  Authors:
+    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
+
 Parameters:
   BastionSecurityGroup:
     Description: Select the bastion security group.
