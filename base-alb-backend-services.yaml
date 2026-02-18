@@ -118,6 +118,18 @@ Conditions:
 Resources:
   
   PublicAlbListenerNoSslCertificate:
+    Condition: NoSslCertificate
+    Type : AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref PublicAlbTargetGroup
+      LoadBalancerArn: !Ref PublicApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  PublicAlbListenerRedirectToHttps:
+    Condition: SslCertificate
     Type : AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:

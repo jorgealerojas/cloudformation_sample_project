@@ -9,7 +9,7 @@ It defines a network foundation, security boundaries, compute platform (ECS/Farg
 The templates in this repo are intended to be deployed as a stack set of foundational infrastructure components:
 
 1. Build a multi-subnet VPC layout (public, web/app private, data private) with internet/NAT routing and VPC endpoints.
-2. Create security groups for bastion, ALB, backend, and document data access.
+2. Create security groups for bastion, ALB, backend, and RDS data access.
 3. Provision ECS cluster and backend service runtime resources.
 4. Expose backend traffic through an ALB and target group.
 5. Provision supporting data/storage services (RDS PostgreSQL, S3 bucket).
@@ -35,7 +35,7 @@ Creates core security groups:
 - `BastionSecurityGroup`: inbound SSH (`22`) from `SshAccessCidr`.
 - `PublicAlbSecurityGroup`: inbound HTTP/HTTPS (`80/443`) from internet.
 - `BackendSecurityGroup`: inbound app port `3000` from ALB SG only.
-- `DocumentDBSecurityGroup`: inbound `27017` from backend and bastion SGs.
+- `RDSSecurityGroup`: inbound PostgreSQL (`5432`) from backend and bastion SGs.
 
 Outputs all SG IDs for cross-stack usage.
 
@@ -53,8 +53,8 @@ Creates an ECS cluster:
 ### `base-alb-backend-services.yaml`
 Creates public ALB resources for backend traffic:
 - Internet-facing ALB.
-- HTTP listener with redirect to HTTPS.
-- Optional HTTPS listener when ACM certificate ARN is provided.
+- HTTP listener with direct forwarding when ACM certificate ARN is not provided.
+- HTTP-to-HTTPS redirect and HTTPS listener when ACM certificate ARN is provided.
 - IP target group for backend on port `3000` with `/health` check.
 
 Outputs include ALB DNS name, hosted zone ID, full name, target group ARN, and a computed ALB hostname.
@@ -193,4 +193,3 @@ Assumptions used:
 | RDS PostgreSQL (`base-rds.yaml`) | Single-AZ, class/storage defined at deploy time | Variable (instance/storage/backup) |
 
 Estimated baseline subtotal (excluding variable S3/RDS/data transfer): **~153.56 USD/month**.
-

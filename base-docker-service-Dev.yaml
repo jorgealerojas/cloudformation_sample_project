@@ -32,11 +32,15 @@ Parameters:
     Description: Select the Security Group to use for the ECS cluster hosts
     Type: AWS::EC2::SecurityGroup::Id
 
+  TargetGroupArn:
+    Description: ALB target group ARN where backend tasks are registered
+    Type: String
+
 
 Conditions:
-  IsProd: !Equals [!Ref DeploymentEnv, Prod]
-  IsStg: !Equals [!Ref DeploymentEnv, Stg]
-  IsDev: !Equals [!Ref DeploymentEnv, Dev]
+  IsProd: !Equals [!Ref DeploymentEnv, prod]
+  IsStg: !Equals [!Ref DeploymentEnv, stg]
+  IsDev: !Equals [!Ref DeploymentEnv, dev]
 
 Resources:
   BackendTaskDefinition:
@@ -46,14 +50,14 @@ Resources:
       NetworkMode: awsvpc
       RequiresCompatibilities:
       - FARGATE
-      ExecutionRoleArn: !Sub "arn:aws:iam::604409773169:role/${SystemName}-task-exec-role-${DeploymentEnv}"
+      ExecutionRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${SystemName}-task-exec-role-${DeploymentEnv}"
       Cpu: !If [IsDev, 512, 1024]
       Memory: !If [IsDev, 1GB, 2GB]
-      TaskRoleArn: !Sub "arn:aws:iam::604409773169:role/${SystemName}-task-exec-role-${DeploymentEnv}"
+      TaskRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${SystemName}-task-exec-role-${DeploymentEnv}"
       ContainerDefinitions:
       - Name: !Sub "${SystemName}-Container-${DeploymentEnv}"
         Essential: true
-        Image: !Sub "604409773169.dkr.ecr.us-east-1.amazonaws.com/base:develop"
+        Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/base:develop"
         MemoryReservation: 128
         Secrets:
         # Varias    
@@ -100,7 +104,7 @@ Resources:
       LoadBalancers:
       - ContainerName: !Sub "${SystemName}-Container-${DeploymentEnv}"
         ContainerPort: 3000
-        TargetGroupArn: !Sub "arn:aws:elasticloadbalancing:us-east-1:604409773169:targetgroup/TG-${SystemName}-Backend-${DeploymentEnv}/f693cf2307f976e8"
+        TargetGroupArn: !Ref TargetGroupArn
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -125,7 +129,6 @@ Resources:
       MaxCapacity: 2
       MinCapacity: 1
       ResourceId: !Sub "service/${Cluster}/${SystemName}-Service-${DeploymentEnv}"
-      RoleARN: !Sub "arn:aws:iam::604409773169:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 

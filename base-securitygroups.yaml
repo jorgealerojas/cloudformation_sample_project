@@ -53,12 +53,12 @@ Resources:
       GroupDescription: Security group for RDS Postgres
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 27017
-          ToPort: 27017
+          FromPort: 5432
+          ToPort: 5432
           SourceSecurityGroupId: !Ref BackendSecurityGroup
         - IpProtocol: tcp
-          FromPort: 27017
-          ToPort: 27017
+          FromPort: 5432
+          ToPort: 5432
           SourceSecurityGroupId: !Ref BastionSecurityGroup
       VpcId:
         !Ref Vpc
