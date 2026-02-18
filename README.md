@@ -33,7 +33,10 @@ Key outputs include VPC ID, subnet IDs (individual and comma-separated lists), e
 ### `base-securitygroups.yaml`
 Creates core security groups:
 - `BastionSecurityGroup`: inbound SSH (`22`) from `SshAccessCidr`.
-- `PublicAlbSecurityGroup`: inbound HTTP/HTTPS (`80/443`) from internet.
+- `PublicAlbSecurityGroup`: ALB SG with selectable ingress mode:
+  - `internet` (`0.0.0.0/0`)
+  - `cloudfront-prefix-list` (CloudFront origin-facing managed prefix list ID)
+  - `vpc-origin-security-group` (specific SG source, for CloudFront VPC origin workflows)
 - `BackendSecurityGroup`: inbound app port `3000` from ALB SG only.
 - `RDSSecurityGroup`: inbound PostgreSQL (`5432`) from backend and bastion SGs.
 
@@ -51,13 +54,28 @@ Creates an ECS cluster:
 - Outputs cluster ID/reference.
 
 ### `base-alb-backend-services.yaml`
-Creates public ALB resources for backend traffic:
-- Internet-facing ALB.
+Creates ALB resources for backend traffic:
+- ALB scheme is selectable (`internet-facing` or `internal`).
 - HTTP listener with direct forwarding when ACM certificate ARN is not provided.
 - HTTP-to-HTTPS redirect and HTTPS listener when ACM certificate ARN is provided.
 - IP target group for backend on port `3000` with `/health` check.
 
 Outputs include ALB DNS name, hosted zone ID, full name, target group ARN, and a computed ALB hostname.
+
+### `base-cloudfront-backend.yaml`
+Creates CloudFront distribution with a public ALB origin:
+- CloudFront in front of ALB (custom origin).
+- Optional WAF association.
+- Optional Origin Shield.
+- Optional custom certificate and aliases.
+- Optional access logs.
+
+### `base-cloudfront-backend-vpc-origin.yaml`
+Creates CloudFront distribution with VPC origin mode:
+- `AWS::CloudFront::VpcOrigin` targeting ALB ARN.
+- Distribution origin uses `VpcOriginConfig`.
+- Supports internal ALB patterns.
+- Optional WAF association, Origin Shield, custom cert/aliases, and access logs.
 
 ### `base-docker-service-Dev.yaml`
 Creates ECS/Fargate backend service runtime:
@@ -111,6 +129,9 @@ Outputs instance ID and public/private IPs.
 7. `base-rds.yaml`
 8. `base-s3-backend.yaml`
 9. `base-bastion.yaml`
+10. Optional edge layer:
+   - `base-cloudfront-backend.yaml` (public ALB origin mode)
+   - `base-cloudfront-backend-vpc-origin.yaml` (VPC origin mode)
 
 Use outputs from earlier stacks (VPC, subnets, SGs, target group, cluster) as parameters in later stacks.
 

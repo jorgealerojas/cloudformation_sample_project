@@ -1,0 +1,202 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: CloudFront distribution for backend ALB (public origin mode)
+
+Metadata:
+
+  Authors:
+    Description: Jorge Rojas (jorgealejandrorojas919@gmail.com)
+
+Parameters:
+  SystemName:
+    Description: Identifier for the current system and environment
+    Type: String
+
+  DeploymentEnv:
+    Description: The environment to be deployed
+    Type: String
+    AllowedValues:
+    - dev
+    - stg
+    - prod
+
+  OriginAlbDnsName:
+    Description: DNS name of the ALB origin (for example, output PublicAlbDnsName)
+    Type: String
+
+  OriginProtocolPolicy:
+    AllowedValues:
+    - http-only
+    - https-only
+    - match-viewer
+    Default: https-only
+    Description: Protocol policy used by CloudFront when connecting to ALB.
+    Type: String
+
+  ViewerProtocolPolicy:
+    AllowedValues:
+    - allow-all
+    - https-only
+    - redirect-to-https
+    Default: redirect-to-https
+    Description: Viewer protocol behavior at CloudFront edge.
+    Type: String
+
+  PriceClass:
+    AllowedValues:
+    - PriceClass_100
+    - PriceClass_200
+    - PriceClass_All
+    Default: PriceClass_100
+    Description: CloudFront edge location price class.
+    Type: String
+
+  CachePolicyId:
+    Default: 413f1600-6f5c-4f14-bf5e-3f2786f527c4
+    Description: Cache policy ID (defaults to AWS managed CachingDisabled policy).
+    Type: String
+
+  OriginRequestPolicyId:
+    Default: 216adef6-5c7f-47e4-b989-5492eafa07d3
+    Description: Origin request policy ID (defaults to AWS managed AllViewer policy).
+    Type: String
+
+  ResponseHeadersPolicyId:
+    Default: ''
+    Description: Optional response headers policy ID.
+    Type: String
+
+  EnableOriginShield:
+    AllowedValues:
+    - 'true'
+    - 'false'
+    Default: 'false'
+    Description: Enable Origin Shield for the ALB origin.
+    Type: String
+
+  OriginShieldRegion:
+    Default: us-east-1
+    Description: Region for Origin Shield when enabled.
+    Type: String
+
+  ViewerCertificateArn:
+    AllowedPattern: ^$|(arn:aws:acm:)([a-z0-9/:-])*([a-z0-9])$
+    Default: ''
+    Description: Optional ACM certificate ARN for custom domains.
+    Type: String
+
+  AlternateDomainNames:
+    Default: ''
+    Description: Optional comma-separated alternate domain names (CNAMEs).
+    Type: CommaDelimitedList
+
+  WafWebAclArn:
+    AllowedPattern: ^$|(arn:aws:wafv2:)([a-z0-9/:-])*([a-z0-9])$
+    Default: ''
+    Description: Optional AWS WAF web ACL ARN to attach to the distribution.
+    Type: String
+
+  EnableAccessLogs:
+    AllowedValues:
+    - 'true'
+    - 'false'
+    Default: 'false'
+    Description: Enable standard access logs.
+    Type: String
+
+  AccessLogsBucketDomainName:
+    Default: ''
+    Description: S3 bucket domain name for logs (for example, my-logs.s3.amazonaws.com).
+    Type: String
+
+  AccessLogsPrefix:
+    Default: cloudfront/
+    Description: Prefix for access logs in the target S3 bucket.
+    Type: String
+
+Conditions:
+  UseOriginShield: !Equals [!Ref EnableOriginShield, 'true']
+  HasResponseHeadersPolicy: !Not [!Equals [!Ref ResponseHeadersPolicyId, '']]
+  HasViewerCertificate: !Not [!Equals [!Ref ViewerCertificateArn, '']]
+  HasAlternateDomainNames: !Not [!Equals [!Join ['', !Ref AlternateDomainNames], '']]
+  HasWafWebAclArn: !Not [!Equals [!Ref WafWebAclArn, '']]
+  ShouldEnableAccessLogs: !Equals [!Ref EnableAccessLogs, 'true']
+  HasAccessLogsBucket: !Not [!Equals [!Ref AccessLogsBucketDomainName, '']]
+  UseAccessLogs: !And
+    - !Condition ShouldEnableAccessLogs
+    - !Condition HasAccessLogsBucket
+
+Resources:
+  BackendCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        Comment: !Sub "Backend distribution for ${SystemName}-${DeploymentEnv} (public ALB origin)"
+        WebACLId: !If [HasWafWebAclArn, !Ref WafWebAclArn, !Ref AWS::NoValue]
+        Aliases: !If [HasAlternateDomainNames, !Ref AlternateDomainNames, !Ref AWS::NoValue]
+        Origins:
+        - Id: BackendAlbOrigin
+          DomainName: !Ref OriginAlbDnsName
+          CustomOriginConfig:
+            HTTPPort: 80
+            HTTPSPort: 443
+            OriginProtocolPolicy: !Ref OriginProtocolPolicy
+            OriginSSLProtocols:
+            - TLSv1.2
+          OriginShield: !If
+            - UseOriginShield
+            - Enabled: true
+              OriginShieldRegion: !Ref OriginShieldRegion
+            - !Ref AWS::NoValue
+        DefaultCacheBehavior:
+          TargetOriginId: BackendAlbOrigin
+          ViewerProtocolPolicy: !Ref ViewerProtocolPolicy
+          AllowedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+          - PUT
+          - PATCH
+          - POST
+          - DELETE
+          CachedMethods:
+          - GET
+          - HEAD
+          - OPTIONS
+          CachePolicyId: !Ref CachePolicyId
+          OriginRequestPolicyId: !Ref OriginRequestPolicyId
+          ResponseHeadersPolicyId: !If [HasResponseHeadersPolicy, !Ref ResponseHeadersPolicyId, !Ref AWS::NoValue]
+          Compress: true
+        ViewerCertificate: !If
+          - HasViewerCertificate
+          - AcmCertificateArn: !Ref ViewerCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Logging: !If
+          - UseAccessLogs
+          - Bucket: !Ref AccessLogsBucketDomainName
+            IncludeCookies: false
+            Prefix: !Ref AccessLogsPrefix
+          - !Ref AWS::NoValue
+
+Outputs:
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID
+    Value: !Ref BackendCloudFrontDistribution
+
+  CloudFrontDistributionDomainName:
+    Description: CloudFront domain name
+    Value: !GetAtt BackendCloudFrontDistribution.DomainName
+
+  CloudFrontDistributionHostedZoneId:
+    Description: Route53 hosted zone ID for CloudFront aliases
+    Value: Z2FDTNDATAQYW2
+
+  CloudFrontDistributionUrl:
+    Description: Base HTTPS URL for CloudFront distribution
+    Value: !Sub "https://${BackendCloudFrontDistribution.DomainName}"

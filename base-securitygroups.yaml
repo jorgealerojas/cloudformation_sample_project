@@ -14,10 +14,19 @@ Metadata:
         default: AWS Parameters
       Parameters:
         - SshAccessCidr
+        - AlbIngressMode
+        - CloudFrontOriginPrefixListId
+        - CloudFrontVpcOriginSecurityGroupId
         - Vpc
     ParameterLabels:
       SshAccessCidr:
         default: SSH Access From
+      AlbIngressMode:
+        default: ALB Ingress Mode
+      CloudFrontOriginPrefixListId:
+        default: CloudFront Origin Prefix List ID
+      CloudFrontVpcOriginSecurityGroupId:
+        default: CloudFront VPC Origin Security Group ID
       Vpc:
         default: Vpc Id
 
@@ -32,6 +41,37 @@ Parameters:
     AllowedPattern: ^(vpc-)([a-z0-9]{8}|[a-z0-9]{17})$
     Description: The Vpc Id of an existing Vpc.
     Type: AWS::EC2::VPC::Id
+  AlbIngressMode:
+    AllowedValues:
+    - internet
+    - cloudfront-prefix-list
+    - vpc-origin-security-group
+    Default: internet
+    Description: Controls who can reach the ALB security group.
+    Type: String
+  CloudFrontOriginPrefixListId:
+    AllowedPattern: ^$|^(pl-)([a-z0-9]+)$
+    Default: ''
+    Description: Required when AlbIngressMode is cloudfront-prefix-list.
+    Type: String
+  CloudFrontVpcOriginSecurityGroupId:
+    AllowedPattern: ^$|^(sg-)([a-z0-9]{8}|[a-z0-9]{17})$
+    Default: ''
+    Description: Required when AlbIngressMode is vpc-origin-security-group.
+    Type: String
+
+Conditions:
+  AlbIngressFromInternet: !Equals [!Ref AlbIngressMode, internet]
+  AlbIngressFromCloudFrontPrefixList: !Equals [!Ref AlbIngressMode, cloudfront-prefix-list]
+  AlbIngressFromVpcOriginSecurityGroup: !Equals [!Ref AlbIngressMode, vpc-origin-security-group]
+  HasCloudFrontOriginPrefixListId: !Not [!Equals [!Ref CloudFrontOriginPrefixListId, '']]
+  HasCloudFrontVpcOriginSecurityGroupId: !Not [!Equals [!Ref CloudFrontVpcOriginSecurityGroupId, '']]
+  CreateAlbIngressFromCloudFrontPrefixList: !And
+    - !Condition AlbIngressFromCloudFrontPrefixList
+    - !Condition HasCloudFrontOriginPrefixListId
+  CreateAlbIngressFromVpcOriginSecurityGroup: !And
+    - !Condition AlbIngressFromVpcOriginSecurityGroup
+    - !Condition HasCloudFrontVpcOriginSecurityGroupId
 
 Resources:
 
@@ -67,17 +107,68 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security group for ALB
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
       VpcId:
-        !Ref Vpc     
+        !Ref Vpc
+
+  PublicAlbIngressHttpFromInternet:
+    Condition: AlbIngressFromInternet
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicAlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: 0.0.0.0/0
+
+  PublicAlbIngressHttpsFromInternet:
+    Condition: AlbIngressFromInternet
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicAlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+
+  PublicAlbIngressHttpFromCloudFrontPrefixList:
+    Condition: CreateAlbIngressFromCloudFrontPrefixList
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicAlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+
+  PublicAlbIngressHttpsFromCloudFrontPrefixList:
+    Condition: CreateAlbIngressFromCloudFrontPrefixList
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicAlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+
+  PublicAlbIngressHttpFromVpcOriginSecurityGroup:
+    Condition: CreateAlbIngressFromVpcOriginSecurityGroup
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicAlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref CloudFrontVpcOriginSecurityGroupId
+
+  PublicAlbIngressHttpsFromVpcOriginSecurityGroup:
+    Condition: CreateAlbIngressFromVpcOriginSecurityGroup
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicAlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref CloudFrontVpcOriginSecurityGroupId
 
   BackendSecurityGroup:
     Type: AWS::EC2::SecurityGroup
